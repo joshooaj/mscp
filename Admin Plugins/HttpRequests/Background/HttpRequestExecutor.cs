@@ -68,7 +68,7 @@ namespace HttpRequests.Background
 
                 if (config.SkipCertValidation)
                 {
-                    _log.Info($"WARNING: TLS certificate validation disabled for request to {new Uri(url).Host}");
+                    _log.Info($"WARNING: TLS certificate validation disabled for request to {request.RequestUri.Host}");
                     request.ServerCertificateValidationCallback = (sender, cert, chain, errors) => true;
                 }
 
@@ -240,6 +240,10 @@ namespace HttpRequests.Background
         /// Checks whether the target URL resolves to a loopback, private, or
         /// link-local address (SSRF protection). Returns an error message if
         /// blocked, or null if the URL is allowed.
+        /// Note: DNS rebinding attacks could bypass this check by returning a
+        /// safe address during validation but a private address for the actual
+        /// request. This provides defense-in-depth but is not a complete SSRF
+        /// mitigation.
         /// </summary>
         private static string CheckForSsrf(string url)
         {
@@ -253,8 +257,9 @@ namespace HttpRequests.Background
                 {
                     addresses = System.Net.Dns.GetHostAddresses(host);
                 }
-                catch
+                catch (Exception ex)
                 {
+                    _log.Info($"SSRF check: DNS resolution failed for {host}: {ex.Message}");
                     return $"Cannot resolve hostname: {host}";
                 }
 

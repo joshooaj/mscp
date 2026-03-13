@@ -163,8 +163,9 @@ namespace RTMPStreamer.Background
 
         /// <summary>
         /// Escapes a value so it is safe to embed inside a double-quoted
-        /// process argument. Backslashes before quotes and trailing
-        /// backslashes are escaped to prevent quote-breaking injection.
+        /// process argument, following the Windows CommandLineToArgvW parsing
+        /// rules. Backslashes before quotes and trailing backslashes are
+        /// doubled; quotes are backslash-escaped.
         /// </summary>
         private static string EscapeArgument(string value)
         {

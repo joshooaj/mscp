@@ -246,11 +246,20 @@ namespace SmartBar.Client
                         {
                             // Validate the path is a real file before executing.
                             // Paths may be absolute or just an exe name (resolved via PATH).
-                            if (!string.IsNullOrEmpty(path) && System.IO.Path.IsPathRooted(path) && !System.IO.File.Exists(path))
+                            if (string.IsNullOrEmpty(path))
+                            {
+                                Log.Error("Program path is empty, skipping launch");
+                                return;
+                            }
+
+                            if (System.IO.Path.IsPathRooted(path) && !System.IO.File.Exists(path))
                             {
                                 Log.Error($"Program not found, skipping launch: {path}");
                                 return;
                             }
+
+                            if (!System.IO.Path.IsPathRooted(path))
+                                Log.Info($"Launching non-rooted program (resolved via PATH): {path}");
 
                             var psi = new System.Diagnostics.ProcessStartInfo
                             {
