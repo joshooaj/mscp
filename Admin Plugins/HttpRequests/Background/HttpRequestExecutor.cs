@@ -47,6 +47,20 @@ namespace HttpRequests.Background
                 // Build URL with query params
                 var url = BuildUrlWithParams(config.Url, config.QueryParams);
 
+                // SSRF protection: block requests to loopback, private, and link-local addresses
+                var ssrfError = CheckForSsrf(url);
+                if (ssrfError != null)
+                {
+                    sw.Stop();
+                    return new HttpRequestResult
+                    {
+                        StatusCode = 0,
+                        ElapsedMs = sw.ElapsedMilliseconds,
+                        Success = false,
+                        Error = ssrfError
+                    };
+                }
+
                 var request = (HttpWebRequest)WebRequest.Create(url);
                 request.Method = config.HttpMethod;
                 request.Timeout = config.TimeoutMs > 0 ? config.TimeoutMs : 10000;
@@ -54,6 +68,7 @@ namespace HttpRequests.Background
 
                 if (config.SkipCertValidation)
                 {
+                    _log.Info($"WARNING: TLS certificate validation disabled for request to {new Uri(url).Host}");
                     request.ServerCertificateValidationCallback = (sender, cert, chain, errors) => true;
                 }
 
@@ -219,6 +234,82 @@ namespace HttpRequests.Background
                 first = false;
             }
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Checks whether the target URL resolves to a loopback, private, or
+        /// link-local address (SSRF protection). Returns an error message if
+        /// blocked, or null if the URL is allowed.
+        /// </summary>
+        private static string CheckForSsrf(string url)
+        {
+            try
+            {
+                var uri = new Uri(url);
+                var host = uri.Host;
+
+                IPAddress[] addresses;
+                try
+                {
+                    addresses = System.Net.Dns.GetHostAddresses(host);
+                }
+                catch
+                {
+                    return $"Cannot resolve hostname: {host}";
+                }
+
+                foreach (var addr in addresses)
+                {
+                    if (IPAddress.IsLoopback(addr))
+                        return $"Requests to loopback addresses are not allowed ({addr})";
+
+                    var bytes = addr.GetAddressBytes();
+
+                    if (addr.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && bytes.Length == 4)
+                    {
+                        // 10.0.0.0/8
+                        if (bytes[0] == 10)
+                            return $"Requests to private network addresses are not allowed ({addr})";
+
+                        // 172.16.0.0/12
+                        if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31)
+                            return $"Requests to private network addresses are not allowed ({addr})";
+
+                        // 192.168.0.0/16
+                        if (bytes[0] == 192 && bytes[1] == 168)
+                            return $"Requests to private network addresses are not allowed ({addr})";
+
+                        // 169.254.0.0/16 (link-local, includes cloud metadata endpoints)
+                        if (bytes[0] == 169 && bytes[1] == 254)
+                            return $"Requests to link-local addresses are not allowed ({addr})";
+
+                        // 127.0.0.0/8
+                        if (bytes[0] == 127)
+                            return $"Requests to loopback addresses are not allowed ({addr})";
+                    }
+
+                    if (addr.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+                    {
+                        // ::1
+                        if (addr.Equals(IPAddress.IPv6Loopback))
+                            return $"Requests to loopback addresses are not allowed ({addr})";
+
+                        // fe80::/10 link-local
+                        if (bytes.Length >= 2 && bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80)
+                            return $"Requests to link-local addresses are not allowed ({addr})";
+
+                        // fc00::/7 unique local
+                        if (bytes.Length >= 1 && (bytes[0] & 0xfe) == 0xfc)
+                            return $"Requests to private network addresses are not allowed ({addr})";
+                    }
+                }
+            }
+            catch (UriFormatException)
+            {
+                return "Invalid URL format";
+            }
+
+            return null;
         }
     }
 }

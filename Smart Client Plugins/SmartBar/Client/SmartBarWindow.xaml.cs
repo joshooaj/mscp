@@ -244,10 +244,23 @@ namespace SmartBar.Client
                     {
                         try
                         {
-                            if (string.IsNullOrEmpty(args))
-                                System.Diagnostics.Process.Start(path);
-                            else
-                                System.Diagnostics.Process.Start(path, args);
+                            // Validate the path is a real file before executing.
+                            // Paths may be absolute or just an exe name (resolved via PATH).
+                            if (!string.IsNullOrEmpty(path) && System.IO.Path.IsPathRooted(path) && !System.IO.File.Exists(path))
+                            {
+                                Log.Error($"Program not found, skipping launch: {path}");
+                                return;
+                            }
+
+                            var psi = new System.Diagnostics.ProcessStartInfo
+                            {
+                                FileName = path,
+                                UseShellExecute = false
+                            };
+                            if (!string.IsNullOrEmpty(args))
+                                psi.Arguments = args;
+
+                            System.Diagnostics.Process.Start(psi);
                         }
                         catch (Exception ex) { Log.Error($"Failed to start program: {path}", ex); }
                     }
