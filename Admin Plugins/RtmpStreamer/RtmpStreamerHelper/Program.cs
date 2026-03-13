@@ -41,7 +41,7 @@ namespace RTMPStreamerHelper
             _log.Info($"Starting RTMP stream helper");
             _log.Info($"  Server: {serverUri}");
             _log.Info($"  Camera: {cameraId}");
-            _log.Info($"  RTMP:   {rtmpUrl}");
+            _log.Info($"  RTMP:   {MaskStreamKey(rtmpUrl)}");
             _log.Info($"  Assembly search dirs: {string.Join("; ", _assemblySearchDirs)}");
 
             StreamSession session = null;
@@ -172,6 +172,27 @@ namespace RTMPStreamerHelper
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Masks the stream key portion of an RTMP URL to prevent credential
+        /// leakage in log output.
+        /// </summary>
+        private static string MaskStreamKey(string rtmpUrl)
+        {
+            try
+            {
+                var idx = rtmpUrl.IndexOf("://", StringComparison.Ordinal);
+                if (idx < 0) return "***";
+                var hostStart = idx + 3;
+                var pathStart = rtmpUrl.IndexOf('/', hostStart);
+                if (pathStart < 0) return rtmpUrl;
+                return rtmpUrl.Substring(0, pathStart) + "/***";
+            }
+            catch
+            {
+                return "***";
+            }
         }
     }
 }

@@ -139,6 +139,67 @@ namespace RTMPStreamer.Background
             }
         }
 
+        /// <summary>
+        /// Masks the stream key portion of an RTMP URL to prevent credential
+        /// leakage in log output. Returns the URL with the path component
+        /// replaced by "***".
+        /// </summary>
+        private static string MaskStreamKey(string rtmpUrl)
+        {
+            try
+            {
+                var idx = rtmpUrl.IndexOf("://", StringComparison.Ordinal);
+                if (idx < 0) return "***";
+                var hostStart = idx + 3;
+                var pathStart = rtmpUrl.IndexOf('/', hostStart);
+                if (pathStart < 0) return rtmpUrl;
+                return rtmpUrl.Substring(0, pathStart) + "/***";
+            }
+            catch
+            {
+                return "***";
+            }
+        }
+
+        /// <summary>
+        /// Escapes a value so it is safe to embed inside a double-quoted
+        /// process argument, following the Windows CommandLineToArgvW parsing
+        /// rules. Backslashes before quotes and trailing backslashes are
+        /// doubled; quotes are backslash-escaped.
+        /// </summary>
+        private static string EscapeArgument(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return value;
+
+            // Escape backslashes that precede a quote, and escape quotes
+            var sb = new System.Text.StringBuilder(value.Length);
+            int backslashes = 0;
+            foreach (char c in value)
+            {
+                if (c == '\\')
+                {
+                    backslashes++;
+                }
+                else if (c == '"')
+                {
+                    // Double the backslashes before the quote, then escape the quote
+                    sb.Append('\\', backslashes * 2 + 1);
+                    sb.Append('"');
+                    backslashes = 0;
+                }
+                else
+                {
+                    sb.Append('\\', backslashes);
+                    sb.Append(c);
+                    backslashes = 0;
+                }
+            }
+            // Trailing backslashes must be doubled (they precede the closing quote)
+            sb.Append('\\', backslashes * 2);
+            return sb.ToString();
+        }
+
         private void LaunchHelper(Guid itemId, Guid cameraId, string cameraName, string rtmpUrl, bool allowUntrustedCerts = false)
         {
             if (_helpers.TryRemove(itemId, out var existing))
@@ -146,12 +207,12 @@ namespace RTMPStreamer.Background
 
             try
             {
-                _log.Info($"Launching helper: {cameraName} ({cameraId}) -> {rtmpUrl}");
+                _log.Info($"Launching helper: {cameraName} ({cameraId}) -> {MaskStreamKey(rtmpUrl)}");
 
                 var psi = new ProcessStartInfo
                 {
                     FileName = _helperExePath,
-                    Arguments = $"\"{_serverUri}\" \"{cameraId}\" \"{rtmpUrl}\" \"{_milestoneDir}\" \"{(allowUntrustedCerts ? "true" : "false")}\"",
+                    Arguments = $"\"{EscapeArgument(_serverUri)}\" \"{cameraId}\" \"{EscapeArgument(rtmpUrl)}\" \"{EscapeArgument(_milestoneDir)}\" \"{(allowUntrustedCerts ? "true" : "false")}\"",
                     CreateNoWindow = true,
                     UseShellExecute = false,
                     RedirectStandardError = true
@@ -201,7 +262,7 @@ namespace RTMPStreamer.Background
                             newStatus == "Stopped")
                         {
                             if (newStatus.StartsWith("Streaming") && !prev.StartsWith("Streaming"))
-                                _sysLog.StreamConnected(cameraName, rtmpUrl);
+                                _sysLog.StreamConnected(cameraName, MaskStreamKey(rtmpUrl));
                             else if ((newStatus.StartsWith("Error") || newStatus.StartsWith("Codec")) &&
                                      !prev.StartsWith("Error") && !prev.StartsWith("Codec"))
                                 _sysLog.StreamError(cameraName, newStatus);
